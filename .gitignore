@@ -1,0 +1,39 @@
+# Python-specific
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+
+# Virtual environment
+venv/
+env/
+.venv/
+.env/
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+
+# IDEs and editors
+.vscode/
+.idea/
+
+# Streamlit config
+.config/
+
+# dotenv files
+.env
+
+# Huggingface and OpenAI API keys (if using .env or other sensitive files)
+*.env
+
+# FAISS index files (these can be large and binary)
+*.faiss
+
+# Logs
+*.log
+
+# Temporary files
+*.bak
+*.swp
