@@ -130,7 +130,6 @@ from PyPDF2 import PdfReader
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.chat_models import ChatOpenAI
 from langchain.memory import ConversationBufferMemory
-from langchain.chains import ConversationChain
 from sentence_transformers import SentenceTransformer
 import faiss
 import numpy as np
@@ -189,29 +188,52 @@ def get_vectorstore(text_chunks):
     return index
 
 
-def get_conversation_chain(vectorstore):
+def get_faiss_retriever(vectorstore, text_chunks):
+    """
+    Create a simple retriever for the FAISS index.
+    """
+    def retrieve(query, k=5):
+        # Convert the query to an embedding
+        model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+        query_embedding = model.encode(query).reshape(1, -1)
+        
+        # Search the FAISS index for nearest neighbors
+        distances, indices = vectorstore.search(query_embedding, k)
+        results = [text_chunks[i] for i in indices[0]]
+        return results
+    
+    return retrieve
+
+
+def get_conversation_chain(vectorstore, text_chunks):
     llm = ChatOpenAI(model="gpt-3.5-turbo")
     
     # Memory to hold the conversation
     memory = ConversationBufferMemory(memory_key='chat_history', return_messages=True)
     
-    # Initialize conversation chain (retriever is optional, so skipped here)
-    conversation_chain = ConversationChain(
-        llm=llm,
-        memory=memory
-    )
+    # Create a custom retriever
+    retriever = get_faiss_retriever(vectorstore, text_chunks)
+    
+    # Wrap the retriever logic in a simple query-response chain
+    def conversation_chain(query):
+        retrieved_docs = retriever(query)
+        context = "\n".join(retrieved_docs)
+        return llm({"input": query, "context": context})["content"]
+    
     return conversation_chain
 
 
 def handle_userinput(user_question):
-    response = st.session_state.conversation({'input': user_question})
-    st.session_state.chat_history = response.get('memory', [])
+    if not st.session_state.conversation:
+        st.error("Please process a PDF document first!")
+        return
     
-    for i, msg in enumerate(st.session_state.chat_history):
-        if i % 2 == 0:
-            st.write(user_template.replace("{{MSG}}", msg), unsafe_allow_html=True)
-        else:
-            st.write(bot_template.replace("{{MSG}}", msg), unsafe_allow_html=True)
+    response = st.session_state.conversation(user_question)
+    st.session_state.chat_history.append({"user": user_question, "bot": response})
+    
+    for chat in st.session_state.chat_history:
+        st.write(user_template.replace("{{MSG}}", chat["user"]), unsafe_allow_html=True)
+        st.write(bot_template.replace("{{MSG}}", chat["bot"]), unsafe_allow_html=True)
 
 
 def main():
@@ -228,7 +250,7 @@ def main():
     st.header("Chat with PDFs :books:")
     
     user_question = st.text_input("Ask a question about your document:")
-    if user_question and st.session_state.conversation:
+    if user_question:
         handle_userinput(user_question)
     
     with st.sidebar:
@@ -246,7 +268,7 @@ def main():
                 vectorstore = get_vectorstore(text_chunks)
                 
                 # Create conversation chain
-                st.session_state.conversation = get_conversation_chain(vectorstore)
+                st.session_state.conversation = get_conversation_chain(vectorstore, text_chunks)
                 st.success("Processing complete!")
 
 
