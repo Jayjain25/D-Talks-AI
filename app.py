@@ -41,13 +41,13 @@ def get_vectorstore(text_chunks):
     # Uncomment the embeddings you want to use
 
     # OpenAI Embeddings (requires API key)
-    # embeddings = OpenAIEmbeddings()
+    embeddings = OpenAIEmbeddings()
 
     # Hugging Face Instructor embeddings (requires Hugging Face API Key)
     # embeddings = HuggingFaceInstructEmbeddings(model_name="hkunlp/instructor-xl")  # Free model
 
     # Hugging Face Sentence Transformers (free models, no API key required)
-    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")  # Free model
+    # embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")  # Free model
 
     # LLaMA or other Hugging Face-based models (requires API key for Hugging Face)
     # embeddings = HuggingFaceInstructEmbeddings(model_name="meta-llama/LLaMA-7B")  # Requires setup
@@ -60,10 +60,10 @@ def get_conversation_chain(vectorstore):
     # Uncomment the LLMs you want to use
 
     # OpenAI Chat (requires OpenAI API key)
-    # llm = ChatOpenAI()
+    llm = ChatOpenAI()
 
     # Hugging Face FLAN-T5 (free model, no API key required)
-    llm = HuggingFaceHub(repo_id="google/flan-t5-xxl", model_kwargs={"temperature": 0.5, "max_length": 512})
+    # llm = HuggingFaceHub(repo_id="google/flan-t5-xxl", model_kwargs={"temperature": 0.5, "max_length": 512})
 
     # Open Source Hugging Face-based LLM (free model, no API key required)
     # llm = HuggingFaceHub(repo_id="bigscience/bloom-560m", model_kwargs={"temperature": 0.7, "max_length": 512})
