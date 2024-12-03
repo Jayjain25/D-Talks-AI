@@ -125,85 +125,175 @@
 #     main()
 
 import streamlit as st
-import PyPDF2
-from docx import Document
-import spacy
-from gensim.summarization import summarize
-from spacy.lang.en.stop_words import STOP_WORDS
-from collections import Counter
-
-def extract_text_from_pdf(file):
-    pdf_reader = PyPDF2.PdfReader(file)
-    text = ""
-    for page in pdf_reader.pages:
-        text += page.extract_text()
-    return text
-
-def extract_text_from_docx(file):
-    doc = Document(file)
-    text = ""
-    for paragraph in doc.paragraphs:
-        text += paragraph.text
-    return text
-
-import nltk
-from nltk.tokenize import sent_tokenize
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
+from dotenv import load_dotenv
+from PyPDF2 import PdfReader
+from langchain.text_splitter import CharacterTextSplitter
+from langchain.embeddings import OpenAIEmbeddings
+from langchain.embeddings import HuggingFaceInstructEmbeddings
+# from langchain.vectorstores import FAISS
+from sentence_transformers import SentenceTransformer
+import faiss
 import numpy as np
-
-# Download required NLTK data
-nltk.download('punkt')
-
-def summarize_text(text, num_sentences=3):
-    sentences = sent_tokenize(text)
-    tfidf = TfidfVectorizer().fit_transform(sentences)
-    similarity_matrix = cosine_similarity(tfidf, tfidf)
-
-    scores = similarity_matrix.sum(axis=1)
-    ranked_sentences = [sentences[i] for i in np.argsort(scores, axis=0)[-num_sentences:]]
-    return " ".join(ranked_sentences)
-
-# Example usage
-text = "Your long text goes here..."
-print(summarize_text(text))
+from langchain.chat_models import ChatOpenAI
+from langchain.memory import ConversationBufferMemory
+# from langchain.chains import ConversationRetrievalChain
+from langchain.chains import ConversationChain
+from langchain_community.chat_models import ChatOpenAI
+# from langchain.memory import ConversationBufferMemory
+# from langchain.chains import ConversationChain
 
 
+from htmlTemplates import css, bot_template,user_template
 
 
-def extract_keywords(text, num_keywords=5):
-    nlp = spacy.load("en_core_web_sm")
-    doc = nlp(text)
-    keywords = [token.text for token in doc if token.is_alpha and not token.is_stop]
-    keyword_freq = Counter(keywords)
-    common_keywords = keyword_freq.most_common(num_keywords)
-    return [word[0] for word in common_keywords]
+def get_pdf_text(pdf_docs):
+  text = ""
+  for pdf in pdf_docs:
+    pdf_reader = PdfReader(pdf)
+    for page in pdf_reader.pages:
+      text += page.extract_text()
+  
+  return text
+
+def validate_input(func):
+    """
+    Decorator to validate input before the main function logic.
+    """
+    def wrapper(text, *args, **kwargs):
+        # Validation logic
+        if not isinstance(text, str) or len(text) == 0:
+            raise ValueError("Input must be a non-empty string")
+        
+        # Call the original function if validation passes
+        return func(text, *args, **kwargs)
+    
+    return wrapper
+
+@validate_input
+def get_text_chunks(text):
+    text_splitter = CharacterTextSplitter(
+        separator="\n",
+        chunk_size=1000,
+        chunk_overlap=200,
+        length_function=len
+    )
+    chunks = text_splitter.split_text(text)
+    return chunks
+  
+# def get_vectorstore(text_chunks):
+#   # embediings = OpenAIEmbeddings()
+#   # embeddings = HuggingFaceInstructEmbeddings(model_name="hkunlp/instructor-xl")
+#   embeddings = HuggingFaceInstructEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+
+    
+#     # Create a FAISS vector store from the provided text chunks and embeddings
+#   vectorstore = FAISS.from_texts(texts=text_chunks, embedding=embeddings)
+    
+#   return vectorstore
+
+def get_vectorstore(text_chunks):
+    # Initialize the sentence transformer model (this could be any pre-trained model)
+    model = SentenceTransformer('all-MiniLM-L6-v2')  # Example model
+    
+    # Generate embeddings for the text chunks
+    embeddings = model.encode(text_chunks, convert_to_tensor=True)
+    
+    # Convert the embeddings to numpy array for FAISS compatibility
+    embeddings = embeddings.cpu().numpy()
+    
+    # Initialize the FAISS index (using L2 distance)
+    index = faiss.IndexFlatL2(embeddings.shape[1])  # The number of dimensions is the embedding size
+    
+    # Add embeddings to the FAISS index
+    index.add(embeddings)
+    
+    return index
+
+# def get_conversation_chain(vectorstore):
+#   llm = ChatOpenAI()
+  
+#   memory = ConversationBufferMemory(memory_key = 'chat_history',return_messages = True)
+  
+#   conversation_chain = ConversationChain.from_llm(
+#     llm = llm,
+#     retriever = vectorstore.s_retriever(),
+#     memory = memory
+#   )
+  
+#   return conversation_chain
+
+
+def get_conversation_chain(vectorstore):
+    llm = ChatOpenAI()  # ChatOpenAI from langchain-community
+    
+    # Memory to hold the conversation
+    memory = ConversationBufferMemory(memory_key='chat_history', return_messages=True)
+    
+    # Correct usage of vectorstore's retriever
+    retriever = vectorstore.as_retriever()
+    
+    # Initialize conversation chain
+    conversation_chain = ConversationChain.from_llm(
+        llm=llm,
+        retriever=retriever,
+        memory=memory
+    )
+    
+    return conversation_chain
+
+
+def handle_userinput(user_question):
+  response = st.session_state.conversation({'question' : user_question})
+  st.session_state.chat_history = response['chat_history']
+  
+  for i, msg in enumerate(st.session_state.chat_history):
+    if i % 2 == 0:
+      st.write(user_template.replace("{{MSG}}",msg.content),unsafe_allow_html=True)
+    else:
+      st.write(bot_template.replace("{{MSG}}",msg.content),unsafe_allow_html=True)
+
 
 def main():
-    st.title("Smart Document Summarizer")
-    st.write("Upload a PDF or DOCX file to get a summarized version and extracted keywords.")
+  
+  load_dotenv()
+  st.set_page_config(page_title = "chat with pdf",page_icon = ":books:")
+  
+  st.write(css,unsafe_allow_html = True)
+  
+  if "coversation" not in st.session_state:
+    st.session_state.conversation = None
+  
+  if "chat_history" not in st.session_state:
+    st.session_state.chat_history = None
+  
+  st.header("chat with pdfs :books:")
+  user_question = st.text_input("Ask a question about your documnet")
+  if user_question:
+    handle_userinput(user_question)
+  
+  
+  st.write(user_template.replace("{{MSG}}","Hello Robot"),unsafe_allow_html=True)
+  st.write(bot_template.replace("{{MSG}}","Hello Human"),unsafe_allow_html=True)
+  
+  with st.sidebar:
+    st.subheader("Your Document")
+    pdf_docs = st.file_uploader("Upload here",accept_multiple_files = True)
+    if st.button("process"):
+      with st.spinner("Processing"):
+        
+        #get pdf text
+        raw_text = get_pdf_text(pdf_docs)
+        
+        #get the text chunks
+        text_chunks = get_text_chunks(raw_text)
+        
+        #create vector store
+        
+        vectorstore = get_vectorstore(text_chunks)
+        st.write("Done")
+        
+        #crete converstion chain
+        st.session_state.conversation = get_conversation_chain(vectorstore)
 
-    uploaded_file = st.file_uploader("Choose a PDF or DOCX file", type=["pdf", "docx"])
-    summary_ratio = st.slider("Summary Length (0.1 - 0.5)", min_value=0.1, max_value=0.5, value=0.2)
-    num_keywords = st.slider("Number of Keywords", min_value=5, max_value=15, value=5)
-
-    if uploaded_file is not None:
-        if uploaded_file.name.endswith(".pdf"):
-            text = extract_text_from_pdf(uploaded_file)
-        elif uploaded_file.name.endswith(".docx"):
-            text = extract_text_from_docx(uploaded_file)
-
-        if text:
-            st.subheader("Original Text")
-            st.write(text[:1000] + "...")  # Display a snippet of the text
-
-            st.subheader("Summary")
-            summary = summarize_text(text, ratio=summary_ratio)
-            st.write(summary)
-
-            st.subheader("Keywords")
-            keywords = extract_keywords(text, num_keywords=num_keywords)
-            st.write(", ".join(keywords))
-
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+  main()
